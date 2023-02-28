@@ -1,0 +1,141 @@
+rm(list = ls())
+setwd("/Users/chaochen/Desktop/GEOstart")
+library(dplyr)
+
+load("DEexpressgeneset1nd2.Rdata")
+load("DEexpressgeneset3nd4.Rdata")
+ls()
+
+#https://xgboost.readthedocs.io/en/stable/R-package/xgboostPresentation.html
+#https://blog.csdn.net/weixin_41988628/article/details/83051712
+#改输入矩阵
+
+key_from_emc_de_cluster<-read.csv("afterrockey.csv")  #这里要读入的
+key_from_emc_de_cluster$key_gene
+exp3nd4<-exp3nd4[na.omit(match(key_from_emc_de_cluster$key_gene,rownames(exp3nd4))),]# 去重NA ，匹配不上的
+dim(exp3nd4)
+
+
+
+factor_xg<-Group3nd4
+#factor_xg<-as.numeric(factor_xg)
+exp_xg0<-t(exp3nd4)
+exp_xg0<-as.data.frame(exp_xg0)
+exp_xg <-exp_xg0 %>%
+  tibble::add_column(factor_xg = factor_xg)
+exp_xg[,"factor_xg"]
+dim(exp_xg0)
+dim(exp_xg)#  确认多一列
+exp_xg[1:3, 1:4]
+#######################记得改factor_xg里面的值
+
+#https://zhuanlan.zhihu.com/p/354216711
+#划分训练数据，测试数据
+set.seed(1)
+library(xgboost)
+library(MASS)
+
+pima <- exp_xg #数据植入
+set.seed(502)
+ind <- sample(2, nrow(pima), replace = TRUE, prob = c(0.7, 0.3))
+pima.train <- pima[ind == 1, ]#训练数据
+pima.test <- pima[ind == 2, ]#测试数据
+
+
+dim(pima)
+
+#设置网格参数
+#通过expand.grid函数设置模型的网格参数
+grid = expand.grid(
+  nrounds = c(75, 100),#最大迭代次数(最终模型中树的数量)
+  colsample_bytree = 1,#建立树时随机抽取的特征数量，用比率表示,默认为1（使用100%特征）
+  min_child_weight = 1,#对树进行提升时使用的最小权重,默认为1
+  eta = c(0.01, 0.1, 0.3), #学习率，默认为0.3
+  gamma = c(0.5, 0.25),#在树中新增一个叶子分区时所需的最小减损
+  subsample = 0.5,#子样本数据占整个观测的比例，默认值为1（100%）
+  max_depth = c(2, 3)#单个数的最大深度
+)
+grid
+
+#使用caret包的trainControl函数定义5折交叉验证
+library(caret)
+cntrl = trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE,
+  returnData = FALSE,
+  returnResamp = "final"                                                      
+)
+
+#使用caret包的train训练
+dim(pima)
+train.xgb = train(
+  x = pima.train[, 1:19],#训练集中的前7列#注意改参数
+  y = pima.train[, 20],#训练集中的第8列  #注意改参数
+  trControl = cntrl,#设置交叉验证
+  tuneGrid = grid,#网格参数
+  method = "xgbTree",
+  verbosity = 0 # verbosity = 0 which will be passed on by caret::train to the xgboost call:
+)
+
+#将最佳参数放在list对象中
+param <- list(  objective           = "binary:logistic",   #“reg:linear” –linear regression：回归
+                booster             = "gbtree",
+                eval_metric         = "error", #   “error”:分类任务
+                eta                 = 0.1, 
+                max_depth           = 10,  #树的最大深度，值越大，树越复杂。
+                subsample           = 0.5,
+                colsample_bytree    = 1,
+                gamma               = 0.5,
+                min_child_weight    =1,
+                nthread=4
+)
+
+#将训练数据转为xgb.train用的类型
+x <- as.matrix(pima.train[, 1:19])   #    注意参数更改
+y <- ifelse(pima.train$factor_xg == "ctl", 0, 1)
+#xgb.DMatrix函数处理数据，将矩阵和标号列表组合成符合要求的输入
+train.mat <- xgb.DMatrix(data = x, 
+                         label = y)
+
+set.seed(1)
+#xgb.train函数训练模型，data为包含输入数据和标记数据，nrounds迭代次数
+xgb.fit <- xgb.train(params = param, data = train.mat, nrounds = 500)
+xgb.fit
+
+#predict函数第一个参数为模型，第二个参数为要验证的数据，此处为输入矩阵
+pred <- predict(xgb.fit, x)
+dim(pred)
+impMatrix <- xgb.importance(feature_names = dimnames(x)[[2]], model = xgb.fit)
+impMatrix
+#画出变量重要性图,impMatrix为重要特征矩阵
+xgb.plot.importance(impMatrix[1:5,], main = "Gain by Feature")
+
+##画出ROC曲线
+
+#InformationValue包的plotROC函数绘制ROC曲线图
+library(InformationValue)
+plotROC(y,pred)
+
+class(pred)
+print(pred)
+print(y)
+###############
+
+###########重新做pred 好像出来了
+x_test <- as.matrix(pima.test[, 1:19])   #    注意参数更改
+y_test <- ifelse(pima.test$factor_xg == "ctl", 0, 1)
+pred_test <- predict(xgb.fit, x_test)
+plotROC(y_test,pred_test)
+
+######
+library(pROC)
+xgboost_roc <- roc(y_test,pred_test, direction='<')
+#绘制ROC曲线和AUC值
+plot(xgboost_roc, print.auc=TRUE, auc.polygon=TRUE, 
+     #grid=c(0.1, 0.2),grid.col=c("green", "red"), 
+     max.auc.polygon=TRUE,auc.polygon.col="skyblue", 
+     print.thres=TRUE,main='xgboost model ROC curve', axes=FALSE)
+axis(2,pos=1)
+axis(1,pos=0)
+
