@@ -44,9 +44,12 @@ pima.test <- pima[ind == 2, ]#测试数据
 
 
 dim(pima)
+dim(pima.train)
+dim(pima.test)
+
 
 #设置网格参数
-#通过expand.grid函数设置模型的网格参数
+#通过expand.grid函数设置模型的网格参数https://juejin.cn/post/6844903661013827598
 grid = expand.grid(
   nrounds = c(75, 100),#最大迭代次数(最终模型中树的数量)
   colsample_bytree = 1,#建立树时随机抽取的特征数量，用比率表示,默认为1（使用100%特征）
@@ -54,7 +57,7 @@ grid = expand.grid(
   eta = c(0.01, 0.1, 0.3), #学习率，默认为0.3
   gamma = c(0.5, 0.25),#在树中新增一个叶子分区时所需的最小减损
   subsample = 0.5,#子样本数据占整个观测的比例，默认值为1（100%）
-  max_depth = c(2, 3)#单个数的最大深度
+  max_depth = c(2, 3,5)#单个树的最大深度 #改动了下
 )
 grid
 
@@ -63,6 +66,7 @@ library(caret)
 cntrl = trainControl(
   method = "cv",
   number = 5,
+  #repeats=10,  #后来增加的。`repeats` has no meaning for this resampling method. 
   verboseIter = TRUE,
   returnData = FALSE,
   returnResamp = "final"                                                      
@@ -84,24 +88,28 @@ param <- list(  objective           = "binary:logistic",   #“reg:linear” –
                 booster             = "gbtree",
                 eval_metric         = "error", #   “error”:分类任务
                 eta                 = 0.1, 
-                max_depth           = 10,  #树的最大深度，值越大，树越复杂。
+                max_depth           = 2,  #树的最大深度，值越大，树越复杂。
                 subsample           = 0.5,
                 colsample_bytree    = 1,
-                gamma               = 0.5,
+                gamma               = 0.25,#最小损失函数下降值。
                 min_child_weight    =1,
                 nthread=4
 )
 
+
+
 #将训练数据转为xgb.train用的类型
 x <- as.matrix(pima.train[, 1:19])   #    注意参数更改
 y <- ifelse(pima.train$factor_xg == "ctl", 0, 1)
+
+
 #xgb.DMatrix函数处理数据，将矩阵和标号列表组合成符合要求的输入
 train.mat <- xgb.DMatrix(data = x, 
                          label = y)
 
 set.seed(1)
 #xgb.train函数训练模型，data为包含输入数据和标记数据，nrounds迭代次数
-xgb.fit <- xgb.train(params = param, data = train.mat, nrounds = 500)
+xgb.fit <- xgb.train(params = param, data = train.mat, nrounds = 75)  #参数要修改
 xgb.fit
 
 #predict函数第一个参数为模型，第二个参数为要验证的数据，此处为输入矩阵
@@ -126,7 +134,14 @@ print(y)
 ###########重新做pred 好像出来了
 x_test <- as.matrix(pima.test[, 1:19])   #    注意参数更改
 y_test <- ifelse(pima.test$factor_xg == "ctl", 0, 1)
+
+
 pred_test <- predict(xgb.fit, x_test)
+
+yTest<-y_test
+yPred<-pred_test
+
+
 plotROC(y_test,pred_test)
 
 str(y_test)
@@ -145,5 +160,32 @@ plot(xgboost_roc, print.auc=TRUE, auc.polygon=TRUE,
 axis(2,pos=1)
 axis(1,pos=0)
 
+#模型稳定性
+#CALCULATION MEAN SQUARE ERROR
+mean_square_error = mean((yTest - yPred)^2)
 
+#CALCULATING MEAN ABSOLUTE ERROE
+mean_absolute_error = caret::MAE(yTest, yPred)
 
+#CALCULATING ROOT MEAN SQUARE ERRO
+root_mean_square_error = caret::RMSE(yTest, yPred)  #root mean square error
+
+#PRINTING THE EVALUATION METHOD RESULT
+cat("Mean Square Error is: ", mean_square_error, "Mean Absolute Error is: ", mean_absolute_error,
+    "Root Mean Square Error is: ", root_mean_square_error )
+# #CALCULATING THE ACCURACY ON THE TEST DATA
+# table_1=data.frame(actual=yTest, predicted=yPred)
+# 
+# #MEAN ABSOLUTE PERCENTAGE ERROR
+# mean_absolute_percentage_error_test=mean(abs(table_1$actual-table_1$predicted)/table_1$actual)
+# mean_absolute_percentage_error_test
+# accuracy=1-mean_absolute_percentage_error_test
+# accuracy #ACCURACY ACHIEVED BY THE MODEL
+# 
+# 
+# #PLOTTING THE OUTPUT
+# x = 1:length(yTest)
+# plot(x, yTest, col = "red", type = "l")
+# lines(x, yPred, col = "blue", type = "l")
+# legend("topright",  legend = c("Original", "Predicted"), 
+#        fill = c("red", "blue"))
