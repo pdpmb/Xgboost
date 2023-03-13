@@ -53,7 +53,7 @@ grid = expand.grid(
   eta = c(0.01, 0.1, 0.3), #学习率，默认为0.3
   gamma = c(0.5, 0.25),#在树中新增一个叶子分区时所需的最小减损
   subsample = 0.5,#子样本数据占整个观测的比例，默认值为1（100%）
-  max_depth = c(2, 3)#单个数的最大深度
+  max_depth = c(2, 3,5)#单个树的最大深度 #改动了下
 )
 grid
 
@@ -83,10 +83,10 @@ param <- list(  objective           = "binary:logistic",   #“reg:linear” –
                 booster             = "gbtree",
                 eval_metric         = "error", #   “error”:分类任务
                 eta                 = 0.1, 
-                max_depth           = 10,  #树的最大深度，值越大，树越复杂。
+                max_depth           = 3,  #树的最大深度，值越大，树越复杂。
                 subsample           = 0.5,
                 colsample_bytree    = 1,
-                gamma               = 0.5,
+                gamma               = 0.25,
                 min_child_weight    =1,
                 nthread=4
 )
@@ -100,7 +100,7 @@ train.mat <- xgb.DMatrix(data = x,
 
 set.seed(1)
 #xgb.train函数训练模型，data为包含输入数据和标记数据，nrounds迭代次数
-xgb.fit <- xgb.train(params = param, data = train.mat, nrounds = 500)
+xgb.fit <- xgb.train(params = param, data = train.mat, nrounds = 75)
 xgb.fit
 
 #predict函数第一个参数为模型，第二个参数为要验证的数据，此处为输入矩阵
@@ -128,6 +128,9 @@ y_test <- ifelse(pima.test$factor_xg == "ctl", 0, 1)
 pred_test <- predict(xgb.fit, x_test)
 plotROC(y_test,pred_test)
 
+yTest<-y_test
+yPred<-pred_test
+
 ######
 library(pROC)
 xgboost_roc <- roc(y_test,pred_test, direction='<')
@@ -138,4 +141,18 @@ plot(xgboost_roc, print.auc=TRUE, auc.polygon=TRUE,
      print.thres=TRUE,main='xgboost model ROC curve', axes=FALSE)
 axis(2,pos=1)
 axis(1,pos=0)
+
+#模型稳定性
+#CALCULATION MEAN SQUARE ERROR
+mean_square_error = mean((yTest - yPred)^2)
+
+#CALCULATING MEAN ABSOLUTE ERROE
+mean_absolute_error = caret::MAE(yTest, yPred)
+
+#CALCULATING ROOT MEAN SQUARE ERRO
+root_mean_square_error = caret::RMSE(yTest, yPred)  #root mean square error
+
+#PRINTING THE EVALUATION METHOD RESULT
+cat("Mean Square Error is: ", mean_square_error, "Mean Absolute Error is: ", mean_absolute_error,
+    "Root Mean Square Error is: ", root_mean_square_error )
 
